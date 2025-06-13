@@ -10,6 +10,7 @@ from rembg import remove
 from PIL import Image
 from flask import Flask, request, jsonify
 
+
 app = Flask(__name__)
 
 
