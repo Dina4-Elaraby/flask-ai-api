@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: flask-ai-api
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: gunicorn onxxTesting:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9
