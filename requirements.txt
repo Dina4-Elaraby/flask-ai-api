@@ -25,15 +25,28 @@
 # joblib==1.1.0
 
 
-Flask==2.0.3  # Lighter than 2.2.5
-gunicorn==20.0.4  # Stable lightweight version
-numpy==1.21.5  # Smaller footprint than later versions
-opencv-python==4.5.5.64  # Headless version saves ~50MB
-Pillow==9.0.1  # Lighter image processing
-matplotlib==3.3.4  # Lighter plotting
-rembg==2.0.38  # Earlier but functional version
-onnxruntime==1.10.0  # Slimmer runtime
-ultralytics==8.0.12  # Earlier YOLO version
-scikit-image==0.18.3  # Lighter computer vision
-scikit-learn==1.0.2  # Reduced dependencies
-joblib==1.0.1  # Lightweight parallel processing
+# Flask==2.0.3  # Lighter than 2.2.5
+# gunicorn==20.0.4  # Stable lightweight version
+# numpy==1.21.5  # Smaller footprint than later versions
+# opencv-python==4.5.5.64  # Headless version saves ~50MB
+# Pillow==9.0.1  # Lighter image processing
+# matplotlib==3.3.4  # Lighter plotting
+# rembg==2.0.38  # Earlier but functional version
+# onnxruntime==1.10.0  # Slimmer runtime
+# ultralytics==8.0.12  # Earlier YOLO version
+# scikit-image==0.18.3  # Lighter computer vision
+# scikit-learn==1.0.2  # Reduced dependencies
+# joblib==1.0.1  # Lightweight parallel processing
+
+
+gunicorn
+opencv-python
+numpy
+onnxruntime
+matplotlib
+ultralytics
+joblib
+rembg
+Pillow
+scikit-image
+scikit-learn
