@@ -2,26 +2,26 @@ import os
 import cv2
 import numpy as np
 import onnxruntime as ort
-import matplotlib.pyplot as plt
 from ultralytics import YOLO
 import joblib
 from rembg import remove
 from PIL import Image
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Load YOLO model
+
 yolo_model = YOLO(os.path.join(BASE_DIR, "best.pt"))
 
 # Load ONNX MobileNetV2 plant type classifier
 onnx_session = ort.InferenceSession(os.path.join(BASE_DIR, "mobilenetv2_plant_classifier.onnx"))
 input_name = onnx_session.get_inputs()[0].name
 
-# Class names for ONNX prediction
+# Class names
 class_names = ['apple', 'cherry', 'grapes', 'peach', 'pepper', 'potato', 'strawberry', 'tomato']
-
-# Directory containing input images
-input_dir = os.path.join(BASE_DIR, "Pepper")
 
 def resize_with_background(image, size=(224, 224), background_color=(255, 255, 255)):
     image_pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
@@ -83,8 +83,7 @@ def predict_disease_with_svm(cropped_image, plant_type):
     bundle_dir = os.path.join(BASE_DIR, "Bundle")
     bundle_path = os.path.join(bundle_dir, f"{plant_type}_bundle.pkl")
     if not os.path.exists(bundle_path):
-        print(f"❌ No SVM bundle found for plant type: {plant_type}")
-        return
+        return f"No SVM model found for {plant_type}"
 
     bundle = joblib.load(bundle_path)
     svm = bundle['model']
@@ -98,18 +97,19 @@ def predict_disease_with_svm(cropped_image, plant_type):
     features_pca = pca.transform(features_scaled)
 
     prediction = svm.predict(features_pca)[0]
-    predicted_class = label_map[prediction]
-    print(f"\U0001fa7a Disease Prediction: {predicted_class}")
+    return label_map[prediction]
 
-image_files = [f for f in os.listdir(input_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file uploaded'}), 400
 
-for image_file in image_files:
-    image_path = os.path.join(input_dir, image_file)
-    original_image = cv2.imread(image_path)
+    file = request.files['image']
+    image_bytes = np.frombuffer(file.read(), np.uint8)
+    original_image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
 
     if original_image is None:
-        print(f"Error loading {image_path}")
-        continue
+        return jsonify({'error': 'Invalid image'}), 400
 
     image_rgb = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
     no_bg = remove(image_rgb, bgcolor=(255, 255, 255, 255), bg_threshold=10)
@@ -118,8 +118,7 @@ for image_file in image_files:
         no_bg = cv2.cvtColor(no_bg, cv2.COLOR_RGBA2RGB)
 
     no_bg_resized = cv2.resize(no_bg, (640, 640))
-
-    temp_path = os.path.join(BASE_DIR,"temporary", "temp_image.jpg")
+    temp_path = os.path.join(BASE_DIR, "temp_image.jpg")
     cv2.imwrite(temp_path, cv2.cvtColor(no_bg_resized, cv2.COLOR_RGB2BGR))
     results = yolo_model.predict(temp_path, save=False)
     os.remove(temp_path)
@@ -127,44 +126,29 @@ for image_file in image_files:
     if results[0].masks is not None and len(results[0].masks.data) > 0:
         masks = results[0].masks.data.cpu().numpy()
         areas = [np.sum(mask) for mask in masks]
-        largest_mask_idx = np.argmax(areas)
-        largest_mask = masks[largest_mask_idx].astype(np.uint8) * 255
-
+        largest_mask = masks[np.argmax(areas)].astype(np.uint8) * 255
         masked_image = cv2.bitwise_and(no_bg_resized, no_bg_resized, mask=largest_mask)
         ys, xs = np.where(largest_mask > 0)
-        if len(xs) == 0 or len(ys) == 0:
-            print(f"Mask found but empty in {image_file}")
-            continue
-
-        x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
-        padding = 5
-        x1 = max(0, x1 - padding)
-        y1 = max(0, y1 - padding)
-        x2 = min(masked_image.shape[1], x2 + padding)
-        y2 = min(masked_image.shape[0], y2 + padding)
-
+        x1, y1, x2, y2 = max(0, min(xs)-5), max(0, min(ys)-5), min(masked_image.shape[1], max(xs)+5), min(masked_image.shape[0], max(ys)+5)
         cropped = masked_image[y1:y2, x1:x2]
         final_image = resize_with_background(cropped, size=(224, 224))
 
         img_array = final_image.astype(np.float32)
-        img_array = img_array / 127.5 - 1.0  # MobileNetV2 preprocessing
+        img_array = img_array / 127.5 - 1.0
         img_array = np.expand_dims(img_array, axis=0)
 
         preds = onnx_session.run(None, {input_name: img_array})[0][0]
-        top3_indices = np.argsort(preds)[-3:][::-1]
-        top3_labels = [class_names[i] for i in top3_indices]
-        top3_scores = [preds[i] for i in top3_indices]
+        top_index = np.argmax(preds)
+        plant_type = class_names[top_index]
+        diagnosis = predict_disease_with_svm(cropped, plant_type)
 
-        print(f"\n\U0001f50d Top 3 plant type predictions for {image_file}:")
-        for label, score in zip(top3_labels, top3_scores):
-            print(f" - {label}: {score * 100:.2f}%")
+        return jsonify({
+            'plant_type': plant_type,
+            'diagnosis': diagnosis
+        })
 
-        plt.figure(figsize=(4, 4))
-        plt.imshow(final_image)
-        plt.axis('off')
-        title = "\n".join([f"{label}: {score*100:.2f}%" for label, score in zip(top3_labels, top3_scores)])
-        plt.title(title)
-        plant_type = top3_labels[0]  # Use the top predicted plant type
-        print(f"\n📌 Detected Plant Type: {plant_type}")
-        predict_disease_with_svm(cropped, plant_type)
+    return jsonify({'error': 'No mask found'}), 400
 
+if __name__ == "__main__":
+    
+    app.run(host='0.0.0.0', debug=True,)
